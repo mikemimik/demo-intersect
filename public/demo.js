@@ -1,31 +1,40 @@
-const Example = {};
 
 Matter.use('matter-wrap');
 
-Example.ballPool = function() {
-    const Engine = Matter.Engine
-    const Render = Matter.Render;
-    const Runner = Matter.Runner
-    const Composite = Matter.Composite;
-    const Composites = Matter.Composites;
-    const Common = Matter.Common;
-    const MouseConstraint = Matter.MouseConstraint;
-    const Mouse = Matter.Mouse;
-    const World = Matter.World;
-    const Bodies = Matter.Bodies;
+const Engine = Matter.Engine
+const Render = Matter.Render;
+const Runner = Matter.Runner
+const Composite = Matter.Composite;
+const Composites = Matter.Composites;
+const Common = Matter.Common;
+const MouseConstraint = Matter.MouseConstraint;
+const Mouse = Matter.Mouse;
+const World = Matter.World;
+const Bodies = Matter.Bodies;
+
+const Demo = {};
+let engine;
+let world;
+let render;
+let sceneWidth;
+let sceneHeight;
+
+Demo.init = function () {
+    const canvasContainer = document.getElementById('canvas-container');
 
     // create engine
-    const engine = Engine.create();
-    const world = engine.world;
+    engine = Engine.create();
+    world = engine.world;
 
     // create renderer
-    const render = Render.create({
-        element: document.body,
+    render = Render.create({
+        // element: document.body,
+        element: canvasContainer,
         engine: engine,
         options: {
-            width: Math.min(document.documentElement.clientWidth, 800),
-            height: Math.min(document.documentElement.clientHeight, 600),
-            showAngleIndicator: true
+            // width: Math.min(document.documentElement.clientWidth, 800),
+            // height: Math.min(document.documentElement.clientHeight, 600),
+            showAngleIndicator: false
         }
     });
 
@@ -35,9 +44,29 @@ Example.ballPool = function() {
     const runner = Runner.create();
     Runner.run(runner, engine);
 
+    Demo.fullscreen();
+
+    window.addEventListener('deviceorientation', Demo.updateGravity, true);
+
+    sceneWidth = document.documentElement.clientWidth;
+    sceneHeight = document.documentElement.clientHeight;
+    let boundsMax = engine.world.bounds.max;
+    let renderOptions = render.options;
+    const canvas = render.canvas;
+
+    boundsMax.x = sceneWidth;
+    boundsMax.y = sceneHeight;
+
+    canvas.width = renderOptions.width = sceneWidth;
+    canvas.height = renderOptions.height = sceneHeight;
+
     // add ground
+    const offset = 5;
     World.add(world, [
-        Bodies.rectangle(400, 600, 1200, 50.5, { isStatic: true })
+        Bodies.rectangle(sceneWidth * 0.5, -offset, sceneWidth + 0.5, 50.5, { isStatic: true }),
+        Bodies.rectangle(sceneWidth * 0.5, sceneHeight + offset, sceneWidth + 0.5, 50.5, { isStatic: true }),
+        Bodies.rectangle(sceneWidth + offset, sceneHeight * 0.5, 50.5, sceneHeight + 0.5, { isStatic: true }),
+        Bodies.rectangle(-offset, sceneHeight * 0.5, 50.5, sceneHeight + 0.5, { isStatic: true })
     ]);
 
     const stack = Composites.stack(100, 0, 10, 10, 10, 10, function(x, y) {
@@ -58,7 +87,7 @@ Example.ballPool = function() {
             constraint: {
                 stiffness: 0.2,
                 render: {
-                    visible: true
+                    visible: false
                 }
             }
         });
@@ -69,10 +98,10 @@ Example.ballPool = function() {
     render.mouse = mouse;
 
     // fit the render viewport to the scene
-    Render.lookAt(render, {
-        min: { x: 0, y: 0 },
-        max: { x: 800, y: 600 }
-    });
+    // Render.lookAt(render, {
+    //     min: { x: 0, y: 0 },
+    //     max: { x: 800, y: 600 }
+    // });
 
     // wrapping using matter-wrap plugin
     const allBodies = Composite.allBodies(world);
@@ -114,7 +143,42 @@ Example.ballPool = function() {
     };
 };
 
+Demo.fullscreen = function () {
+    let fullscreenElement = render.canvas;
+
+    if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement) {
+        if (fullscreenElement.requestFullscreen) {
+            fullscreenElement.requestFullscreen();
+        } else if (fullscreenElement.mozRequestFullScreen) {
+            fullscreenElement.mozRequestFullScreen();
+        } else if (fullscreenElement.webkitRequestFullscreen) {
+            fullscreenElement.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+        }
+    }
+};
+
+Demo.updateGravity = function () {
+    if (!engine) return;
+    let orientation = window.orientation;
+    let gravity = engine.world.gravity;
+
+    if (orientation === 0) {
+        gravity.x = Common.clamp(event.gamma, -90, 90) / 90;
+        gravity.y = Common.clamp(event.beta, -90, 90) / 90;
+    } else if (orientation === 180) {
+        gravity.x = Common.clamp(event.gamma, -90, 90) / 90;
+        gravity.y = Common.clamp(-event.beta, -90, 90) / 90;
+    } else if (orientation === 90) {
+        gravity.x = Common.clamp(event.beta, -90, 90) / 90;
+        gravity.y = Common.clamp(-event.gamma, -90, 90) / 90;
+    } else if (orientation === -90) {
+        gravity.x = Common.clamp(-event.beta, -90, 90) / 90;
+        gravity.y = Common.clamp(event.gamma, -90, 90) / 90;
+    }
+};
+
 const socket = io();
+let state;
 
 function userConnecting() {
     console.log('connecting...')
@@ -124,27 +188,31 @@ function userConnecting() {
 socket.on('user:connected', function (data) {
     console.log('user:connected', data);
     // NOTE(mperrotte): add a ball for yourself when you join
-    canvas.addBall();
+    state.addBalls(1)
     
     // NOTE(mperrotte): add balls for everyone else currently connected
-    canvas.addBalls(data.numUsers - 1);
+    state.addBalls(data.numUsers - 1);
 });
 
 socket.on('user:joined', function (data) {
     console.log('user:joined', data);
     // NOTE(mperrotte): add ball for when someone else joins
-    canvas.addBall();
+    state.addBalls(1);
 });
 
 socket.on('user:disconnected', function (data) {
     console.log('user:disconnected');
     // NOTE(mperrotte): remove ball when a user disconnects
-    canvas.delBall();
+    state.delBall();
 });
 
 socket.on('reconnect_error', function () {
     console.log('attempt to reconnect has failed');
 });
 
-const canvas = Example.ballPool();
-userConnecting();
+window.addEventListener('load', function() {
+    console.log('window load event');
+    state = Demo.init();
+    console.log('state:', state);
+    userConnecting();
+})
