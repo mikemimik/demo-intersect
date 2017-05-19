@@ -11,13 +11,20 @@ const MouseConstraint = Matter.MouseConstraint;
 const Mouse = Matter.Mouse;
 const World = Matter.World;
 const Bodies = Matter.Bodies;
+const Body = Matter.Body;
 
 const Demo = {};
 let engine;
 let world;
 let render;
+let runner;
 let sceneWidth;
 let sceneHeight;
+
+// Triggers
+let trigger = {
+    flipGravity: false
+};
 
 Demo.init = function () {
     const canvasContainer = document.getElementById('canvas-container');
@@ -28,12 +35,10 @@ Demo.init = function () {
 
     // create renderer
     render = Render.create({
-        // element: document.body,
         element: canvasContainer,
         engine: engine,
         options: {
-            // width: Math.min(document.documentElement.clientWidth, 800),
-            // height: Math.min(document.documentElement.clientHeight, 600),
+            wireframes: false,
             showAngleIndicator: false
         }
     });
@@ -41,8 +46,8 @@ Demo.init = function () {
     Render.run(render);
 
     // create runner
-    const runner = Runner.create();
-    Runner.run(runner, engine);
+    runner = Runner.create();
+    Runner.start(runner, engine);
 
     Demo.fullscreen();
 
@@ -63,9 +68,13 @@ Demo.init = function () {
     // add ground
     const offset = 5;
     World.add(world, [
+        // Top wall
         Bodies.rectangle(sceneWidth * 0.5, -offset, sceneWidth + 0.5, 50.5, { isStatic: true }),
-        Bodies.rectangle(sceneWidth * 0.5, sceneHeight + offset, sceneWidth + 0.5, 50.5, { isStatic: true }),
+        // Bottom wall
+        Bodies.rectangle(sceneWidth * 0.5, sceneHeight - 42, sceneWidth + 0.5, 50.5, { isStatic: true }),
+        // Right wall
         Bodies.rectangle(sceneWidth + offset, sceneHeight * 0.5, 50.5, sceneHeight + 0.5, { isStatic: true }),
+        // Left wall
         Bodies.rectangle(-offset, sceneHeight * 0.5, 50.5, sceneHeight + 0.5, { isStatic: true })
     ]);
 
@@ -97,12 +106,6 @@ Demo.init = function () {
     // keep the mouse in sync with rendering
     render.mouse = mouse;
 
-    // fit the render viewport to the scene
-    // Render.lookAt(render, {
-    //     min: { x: 0, y: 0 },
-    //     max: { x: 800, y: 600 }
-    // });
-
     // wrapping using matter-wrap plugin
     const allBodies = Composite.allBodies(world);
 
@@ -113,7 +116,12 @@ Demo.init = function () {
         };
     }
 
-    // context for MatterTools.Demo
+    function addBall () {
+        var ball = Bodies.circle(Common.random(200, 400), 0, Common.random(15, 30), {restitution: 0.6, friction: 0.1 });
+        World.add(world, [ ball ]);
+    }
+
+    // return context state
     return {
         engine: engine,
         runner: runner,
@@ -125,12 +133,8 @@ Demo.init = function () {
         },
         addBalls: function (num) {
             for (let i = 0; i < num; i++) {
-                this.addBall();
+                addBall();
             }
-        },
-        addBall: function () {
-            var ball = Bodies.circle(Common.random(200, 400), 0, Common.random(15, 30), {restitution: 0.6, friction: 0.1 });
-            World.add(world, [ ball ]);
         },
         delBall: function () {
             console.log('world:', world);
@@ -175,10 +179,47 @@ Demo.updateGravity = function () {
         gravity.x = Common.clamp(-event.beta, -90, 90) / 90;
         gravity.y = Common.clamp(event.gamma, -90, 90) / 90;
     }
+
+    if (trigger.flipGravity) {
+        gravity.y = gravity.y * -1;
+    }
 };
 
+// USER FACING CODE
 const socket = io();
 let state;
+
+const admin = {
+    flipGravity: function () {
+        socket.emit('admin', {
+            name: 'flipGravity',
+            params: ''
+        });
+    },
+    changeColor: function (color) {
+        socket.emit('admin', {
+            name: 'changeColor',
+            params: [color]
+        });
+    }
+};
+
+const user = {
+    flipGravity: function () {
+        world.gravity.y = world.gravity.y * -1;
+        trigger.flipGravity = !trigger.flipGravity;
+    },
+    changeColor: function (color) {
+        const allBodies = Composite
+            .allBodies(world)
+            .filter((body) => body.label === "Circle Body");
+
+        console.log('allBodies:', allBodies);
+        allBodies.forEach(function (body) {
+            body.render.fillStyle = '#003b6f';
+        });
+    }
+};
 
 function userConnecting() {
     console.log('connecting...')
@@ -206,13 +247,27 @@ socket.on('user:disconnected', function (data) {
     state.delBall();
 });
 
+socket.on('admin:command:emit', function(command) {
+    console.log('admin:command:emit', command);
+    user[command.name](command.params);
+});
+socket.on('admin:command:broadcast', function(command) {
+    console.log('admin:command:broadcast', command);
+    user[command.name](command.params);
+});
+
 socket.on('reconnect_error', function () {
     console.log('attempt to reconnect has failed');
 });
 
-window.addEventListener('load', function() {
+window.addEventListener('load', function () {
     console.log('window load event');
     state = Demo.init();
     console.log('state:', state);
     userConnecting();
-})
+});
+
+function rebase() {
+    state.stop()
+    state = Demo.init();
+}
