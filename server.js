@@ -37,6 +37,18 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('admin', (command) => {
+        console.log('admin command:', command);
+        socket.emit('admin:command:emit', {
+            name: command.name,
+            params: command.params
+        });
+        socket.broadcast.emit('admin:command:broadcast', {
+            name: command.name,
+            params: command.params
+        });
+    });
+
     socket.on('disconnect', () => {
         if (userConnected) {
             --usersConnected;
